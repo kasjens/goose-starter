@@ -1,0 +1,197 @@
+<#
+.SYNOPSIS
+    Set up (or update) your machine for Goose on Windows.
+
+.DESCRIPTION
+    Idempotent, re-runnable setup that automates the docs' install steps:
+
+      1. Installs Scoop if missing, or updates it if already present.
+      2. Opens the official Goose download page so you can install/update Goose.
+      3. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
+           - sets the GITHUB_COPILOT_HOST user env var
+           - pins a default Copilot model in Goose's config.yaml
+
+    What it CANNOT do (interactive OAuth cannot be scripted):
+      * The Goose Copilot device-flow sign-in. Manual steps are printed at the end.
+
+    Every file this script edits is copied to "<file>.bak" first.
+
+.PARAMETER EnterpriseHost
+    Your GitHub Enterprise host, e.g. your-company.ghe.com (scheme/trailing slash stripped).
+    Leave blank to skip enterprise Copilot configuration (uses public github.com).
+
+.PARAMETER DefaultModel
+    The Goose default Copilot model id (decimal ids, e.g. claude-opus-4.8). Blank = skip pinning.
+
+.PARAMETER SkipPackageManager
+    Skip installing/updating Scoop.
+
+.PARAMETER SkipGoose
+    Skip opening the Goose download page.
+
+.EXAMPLE
+    ./install.ps1
+
+.EXAMPLE
+    ./install.ps1 -EnterpriseHost your-company.ghe.com -DefaultModel claude-opus-4.8
+#>
+[CmdletBinding()]
+param(
+    [string]$EnterpriseHost = '',
+    [string]$DefaultModel   = 'claude-opus-4.8',
+    [switch]$SkipPackageManager,
+    [switch]$SkipGoose
+)
+
+$ErrorActionPreference = 'Stop'
+$GooseDocsUrl = 'https://goose-docs.ai/'
+
+function Write-Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
+function Write-Ok($m)   { Write-Host "    [OK]  $m" -ForegroundColor Green }
+function Write-Note($m) { Write-Host "    [--] $m" -ForegroundColor Gray }
+function Write-Warn2($m){ Write-Host "    [!]  $m" -ForegroundColor Yellow }
+
+function Save-Utf8NoBom($Path, $Text) {
+    [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# Normalise host: strip scheme + trailing slash
+$EnterpriseHost = ($EnterpriseHost -replace '^https?://', '').TrimEnd('/')
+
+Write-Host "Goose setup (Windows)" -ForegroundColor White
+Write-Note "Enterprise host: $(if ($EnterpriseHost) { $EnterpriseHost } else { '(none — public github.com)' })"
+Write-Note "Default model  : $(if ($DefaultModel) { $DefaultModel } else { '(skip)' })"
+
+# ===========================================================================
+# 1) PACKAGE MANAGER (Scoop)
+# ===========================================================================
+if (-not $SkipPackageManager) {
+    Write-Step "Package manager (Scoop)"
+    if (Get-Command scoop -ErrorAction SilentlyContinue) {
+        Write-Ok "Scoop already installed — updating."
+        try { scoop update } catch { Write-Warn2 "scoop update failed; continuing." }
+    }
+    else {
+        Write-Note "Installing Scoop..."
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+        Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+        Write-Ok "Scoop installed."
+    }
+}
+else {
+    Write-Note "Skipping package manager step (-SkipPackageManager)."
+}
+
+# ===========================================================================
+# 2) GOOSE
+# ===========================================================================
+if (-not $SkipGoose) {
+    Write-Step "Goose"
+    Write-Note "The official docs cover the download/install for Windows."
+    Write-Note "Opening: $GooseDocsUrl"
+    Start-Process $GooseDocsUrl
+    Write-Ok "Follow the download/install (or update) instructions there."
+}
+else {
+    Write-Note "Skipping Goose download step (-SkipGoose)."
+}
+
+# ===========================================================================
+# 3) GITHUB ENTERPRISE COPILOT (optional)
+# ===========================================================================
+if ($EnterpriseHost) {
+    Write-Step "GitHub Enterprise Copilot configuration"
+
+    # 3a. Persist GITHUB_COPILOT_HOST (user scope) before the first sign-in.
+    [Environment]::SetEnvironmentVariable('GITHUB_COPILOT_HOST', $EnterpriseHost, 'User')
+    $env:GITHUB_COPILOT_HOST = $EnterpriseHost
+    Write-Ok "Set user env var GITHUB_COPILOT_HOST = $EnterpriseHost (restart Goose to pick it up)"
+
+    # 3b. Pin the default model in Goose's config.yaml.
+    $gooseCfg = Join-Path $env:APPDATA 'Block\goose\config\config.yaml'
+
+    if ([string]::IsNullOrWhiteSpace($DefaultModel)) {
+        Write-Note "No -DefaultModel given; skipping model pin."
+    }
+    elseif (-not (Test-Path $gooseCfg)) {
+        Write-Warn2 "Goose config not found: $gooseCfg"
+        Write-Warn2 "Launch Goose, connect the GitHub Copilot provider once, then re-run to pin the model."
+    }
+    else {
+        # Goose rewrites config.yaml on exit with the last-used model, so close it while editing.
+        $gp = Get-Process -Name Goose -ErrorAction SilentlyContinue
+        if ($gp) {
+            Write-Warn2 "Goose is running — closing it so the edit is not overwritten on exit..."
+            $gp | Stop-Process -Force
+            Start-Sleep -Milliseconds 800
+        }
+
+        Copy-Item $gooseCfg "$gooseCfg.bak" -Force
+        $content = Get-Content -Raw $gooseCfg
+        $nl    = if ($content -match "`r`n") { "`r`n" } else { "`n" }
+        $lines = [System.Collections.Generic.List[string]]($content -split "`r?`n")
+
+        # active_provider: github_copilot
+        $apFound = $false
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\s*active_provider\s*:') { $lines[$i] = 'active_provider: github_copilot'; $apFound = $true; break }
+        }
+        if (-not $apFound) { $lines.Add('active_provider: github_copilot') }
+
+        # providers.github_copilot.model: <DefaultModel>
+        $ghcIdx = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\s*github_copilot\s*:\s*$') { $ghcIdx = $i; break }
+        }
+        if ($ghcIdx -ge 0) {
+            $ghcIndent   = ($lines[$ghcIdx] -replace '\S.*$', '')
+            $childIndent = $ghcIndent + '  '
+            $modelIdx    = -1
+            $j = $ghcIdx + 1
+            while ($j -lt $lines.Count) {
+                $lj = $lines[$j]
+                if ($lj.Trim() -eq '') { $j++; continue }
+                $indent = ($lj -replace '\S.*$', '')
+                if ($indent.Length -le $ghcIndent.Length) { break }
+                if ($lj -match '^\s*model\s*:') { $modelIdx = $j; break }
+                $j++
+            }
+            if ($modelIdx -ge 0) { $lines[$modelIdx] = "${childIndent}model: $DefaultModel" }
+            else                 { $lines.Insert($ghcIdx + 1, "${childIndent}model: $DefaultModel") }
+        }
+        else {
+            $hasProviders = $false
+            foreach ($l in $lines) { if ($l -match '^\s*providers\s*:\s*$') { $hasProviders = $true; break } }
+            if (-not $hasProviders) { $lines.Add('providers:') }
+            $lines.Add('  github_copilot:')
+            $lines.Add('    enabled: true')
+            $lines.Add("    model: $DefaultModel")
+            $lines.Add('    configured: true')
+        }
+
+        Save-Utf8NoBom $gooseCfg (($lines -join $nl).TrimEnd("`r","`n") + $nl)
+        Write-Ok "Pinned Goose default model to '$DefaultModel' (backup: config.yaml.bak)"
+    }
+}
+
+# ===========================================================================
+# MANUAL STEPS
+# ===========================================================================
+Write-Step "Manual steps to finish"
+$manual = @"
+  1. Install/update Goose from the page that just opened ($GooseDocsUrl).
+  2. Launch Goose.
+"@
+if ($EnterpriseHost) {
+    $manual += @"
+
+  3. Fully quit and relaunch Goose so it reads GITHUB_COPILOT_HOST.
+  4. Provider settings -> GitHub Copilot -> run the device-flow sign-in.
+     - It should send you to https://$EnterpriseHost/login/device
+     - Sign in with your managed enterprise account.
+     - Or use the CLI: 'goose configure' (honours GITHUB_COPILOT_HOST).
+  5. In the model picker choose your model (NOT 'Auto') so the default sticks.
+"@
+}
+Write-Host $manual -ForegroundColor White
+Write-Host "`nDone." -ForegroundColor Green
