@@ -1,7 +1,7 @@
 # goose-starter
 
 A beginner-friendly starter repo for getting up and running with AI using
-[Goose](https://goose-docs.ai/) — an open-source AI agent you run on your own
+[Goose](https://goose-docs.ai/) - an open-source AI agent you run on your own
 machine. It can use tools, run commands, and extend itself with **skills**.
 
 This repo gives you scripts and step-by-step docs so you can go from nothing to a
@@ -14,6 +14,7 @@ working Goose setup, even if it's your first time.
 - [Quick install](#quick-install)
 - [Getting started (manual)](#getting-started-manual)
 - [Adding skills](#adding-skills)
+- [Setting the context](#setting-the-context)
 - [GitHub Enterprise Copilot (optional)](#github-enterprise-copilot-optional)
 - [Repo layout](#repo-layout)
 - [Documentation](#documentation)
@@ -25,8 +26,10 @@ working Goose setup, even if it's your first time.
 1. A **package manager** so tools and dependencies install cleanly
    (Scoop on Windows, Homebrew on macOS/Linux).
 2. **Goose** itself.
-3. *(Optional)* **Skills** that extend what Goose can do.
-4. *(Optional)* A **company GitHub Enterprise Copilot** seat as Goose's model
+3. Sensible **context settings** so long sessions stay fast and focused
+   (auto-compaction fires earlier instead of at a huge default).
+4. *(Optional)* **Skills** that extend what Goose can do.
+5. *(Optional)* A **company GitHub Enterprise Copilot** seat as Goose's model
    provider.
 
 ## Prerequisites
@@ -40,8 +43,9 @@ working Goose setup, even if it's your first time.
 ## Quick install
 
 The [`scripts/`](scripts/) folder has re-runnable install/update scripts. They
-install (or update) your package manager, open the Goose download page, and can
-optionally configure a GitHub Enterprise Copilot seat.
+install (or update) your package manager, open the Goose download page, apply
+sensible context settings, and can optionally configure a GitHub Enterprise
+Copilot seat.
 
 **Windows (PowerShell):**
 
@@ -59,7 +63,7 @@ optionally configure a GitHub Enterprise Copilot seat.
 ./scripts/install.sh --enterprise-host your-company.ghe.com --model claude-opus-4.8
 ```
 
-The scripts are **idempotent** — safe to re-run any time to update. They back up
+The scripts are **idempotent** - safe to re-run any time to update. They back up
 every file they edit to `<file>.bak`, and print the manual sign-in steps that
 can't be automated.
 
@@ -73,17 +77,17 @@ Prefer to do it entirely by hand? Follow the manual guide below.
 
 Work through these in order:
 
-1. **[Install Goose](docs/getting-started.md)** — install a package manager
+1. **[Install Goose](docs/getting-started.md)** - install a package manager
    (Scoop / Homebrew), then download and install Goose.
-2. **[Import skills](docs/importing-skills.md)** — add ready-made skills and let
+2. **[Import skills](docs/importing-skills.md)** - add ready-made skills and let
    Goose install their dependencies.
 3. **[Use a GitHub Enterprise Copilot seat](docs/goose-github-enterprise-copilot.md)**
-   *(optional)* — point Goose at your company's enterprise Copilot.
+   *(optional)* - point Goose at your company's enterprise Copilot.
 
 ## Adding skills
 
 Skills are reusable capabilities you can drop into Goose. You don't install them
-by hand — just ask Goose to import them from a repository, for example:
+by hand - just ask Goose to import them from a repository, for example:
 
 > Import the skills from https://github.com/anthropics/skills and install any
 > dependencies they need.
@@ -96,6 +100,37 @@ Sources covered in the docs:
 Goose fetches the skills, works out what they need, and installs dependencies
 using the package manager on your system. See
 [Importing Skills](docs/importing-skills.md) for details.
+
+## Setting the context
+
+Goose keeps your whole conversation in the model's context window and
+auto-compacts (summarizes) it when it gets full. On large-window models the
+default trigger point can be very high, so a session gets slow and expensive long
+before it kicks in. It's usually better to compact **earlier**.
+
+The install scripts set two environment variables for you so this happens
+automatically:
+
+- `GOOSE_CONTEXT_LIMIT` - the tracked context window (default `200000`).
+- `GOOSE_AUTO_COMPACT_THRESHOLD` - the fraction of that limit at which Goose
+  compacts (default `0.7`, i.e. around 140,000 tokens).
+
+Override them if you like:
+
+```powershell
+# Windows
+./scripts/install.ps1 -ContextLimit 150000 -AutoCompactThreshold 0.8
+./scripts/install.ps1 -SkipContext          # leave them untouched
+```
+
+```bash
+# macOS / Linux
+./scripts/install.sh --context-limit 150000 --auto-compact-threshold 0.8
+./scripts/install.sh --skip-context         # leave them untouched
+```
+
+Full explanation, per-model guidance, and how to set it by hand:
+[Setting the Context](docs/setting-the-context.md).
 
 ## GitHub Enterprise Copilot (optional)
 
@@ -115,14 +150,15 @@ manual. Full walkthrough:
 
 ```
 goose-starter/
-├── README.md                              # you are here
-├── docs/
-│   ├── getting-started.md                 # install Goose + a package manager
-│   ├── importing-skills.md                # add skills and their dependencies
-│   └── goose-github-enterprise-copilot.md # optional enterprise Copilot setup
-└── scripts/
-    ├── install.sh                         # macOS / Linux install + update
-    └── install.ps1                        # Windows install + update
+|-- README.md                              # you are here
+|-- docs/
+|   |-- getting-started.md                 # install Goose + a package manager
+|   |-- importing-skills.md                # add skills and their dependencies
+|   |-- setting-the-context.md             # tune auto-compaction / context limit
+|   `-- goose-github-enterprise-copilot.md # optional enterprise Copilot setup
+`-- scripts/
+    |-- install.sh                         # macOS / Linux install + update
+    `-- install.ps1                        # Windows install + update
 ```
 
 ## Documentation
@@ -131,6 +167,7 @@ goose-starter/
 | --- | --- |
 | [Getting Started](docs/getting-started.md) | Installing Goose and a package manager |
 | [Importing Skills](docs/importing-skills.md) | Adding skills from GitHub and installing dependencies |
+| [Setting the Context](docs/setting-the-context.md) | Tuning auto-compaction so long sessions stay fast |
 | [GitHub Enterprise Copilot](docs/goose-github-enterprise-copilot.md) | Configuring Goose against an enterprise Copilot seat |
 
 ## Troubleshooting
@@ -146,7 +183,7 @@ goose-starter/
   `GITHUB_COPILOT_HOST` is set and that you fully quit and relaunched Goose
   afterwards. The env var must be set *before* signing in.
 - **Pinned model keeps resetting:** in Goose's model picker choose your model
-  (not **Auto**) — Goose saves the last-used model as the default on exit.
+  (not **Auto**) - Goose saves the last-used model as the default on exit.
 
 ## About Goose
 

@@ -7,7 +7,9 @@
 
       1. Installs Scoop if missing, or updates it if already present.
       2. Opens the official Goose download page so you can install/update Goose.
-      3. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
+      3. Sets Goose context / auto-compaction env vars so long sessions compact
+         earlier (GOOSE_CONTEXT_LIMIT + GOOSE_AUTO_COMPACT_THRESHOLD).
+      4. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
            - sets the GITHUB_COPILOT_HOST user env var
            - pins a default Copilot model in Goose's config.yaml
 
@@ -23,6 +25,16 @@
 .PARAMETER DefaultModel
     The Goose default Copilot model id (decimal ids, e.g. claude-opus-4.8). Blank = skip pinning.
 
+.PARAMETER ContextLimit
+    Tokens to set as GOOSE_CONTEXT_LIMIT (the tracked context window). Default 200000.
+
+.PARAMETER AutoCompactThreshold
+    Fraction (0.0-1.0) to set as GOOSE_AUTO_COMPACT_THRESHOLD; auto-compaction fires at
+    ContextLimit x this value. Default 0.7 (with the default limit, ~140000 tokens). 0.0 disables.
+
+.PARAMETER SkipContext
+    Skip setting the Goose context / auto-compaction env vars.
+
 .PARAMETER SkipPackageManager
     Skip installing/updating Scoop.
 
@@ -34,11 +46,17 @@
 
 .EXAMPLE
     ./install.ps1 -EnterpriseHost your-company.ghe.com -DefaultModel claude-opus-4.8
+
+.EXAMPLE
+    ./install.ps1 -ContextLimit 150000 -AutoCompactThreshold 0.8
 #>
 [CmdletBinding()]
 param(
     [string]$EnterpriseHost = '',
     [string]$DefaultModel   = 'claude-opus-4.8',
+    [int]$ContextLimit      = 200000,
+    [double]$AutoCompactThreshold = 0.7,
+    [switch]$SkipContext,
     [switch]$SkipPackageManager,
     [switch]$SkipGoose
 )
@@ -59,8 +77,9 @@ function Save-Utf8NoBom($Path, $Text) {
 $EnterpriseHost = ($EnterpriseHost -replace '^https?://', '').TrimEnd('/')
 
 Write-Host "Goose setup (Windows)" -ForegroundColor White
-Write-Note "Enterprise host: $(if ($EnterpriseHost) { $EnterpriseHost } else { '(none — public github.com)' })"
+Write-Note "Enterprise host: $(if ($EnterpriseHost) { $EnterpriseHost } else { '(none - public github.com)' })"
 Write-Note "Default model  : $(if ($DefaultModel) { $DefaultModel } else { '(skip)' })"
+Write-Note "Context        : $(if ($SkipContext) { '(skip)' } else { "limit $ContextLimit, threshold $AutoCompactThreshold" })"
 
 # ===========================================================================
 # 1) PACKAGE MANAGER (Scoop)
@@ -68,7 +87,7 @@ Write-Note "Default model  : $(if ($DefaultModel) { $DefaultModel } else { '(ski
 if (-not $SkipPackageManager) {
     Write-Step "Package manager (Scoop)"
     if (Get-Command scoop -ErrorAction SilentlyContinue) {
-        Write-Ok "Scoop already installed — updating."
+        Write-Ok "Scoop already installed - updating."
         try { scoop update } catch { Write-Warn2 "scoop update failed; continuing." }
     }
     else {
@@ -97,17 +116,49 @@ else {
 }
 
 # ===========================================================================
-# 3) GITHUB ENTERPRISE COPILOT (optional)
+# 3) GOOSE CONTEXT / AUTO-COMPACTION
+# ===========================================================================
+# On large-window models the default auto-compaction trigger (80% of the limit)
+# can be hundreds of thousands of tokens. Long before that a session gets slow,
+# costly, and less accurate. Setting both a tracked context limit and a lower
+# threshold gives a predictable, earlier compaction point across all models.
+#   trigger tokens = GOOSE_CONTEXT_LIMIT x GOOSE_AUTO_COMPACT_THRESHOLD
+# Defaults 200000 x 0.7 = compact around 140000 tokens.
+if (-not $SkipContext) {
+    Write-Step "Goose context / auto-compaction"
+
+    [Environment]::SetEnvironmentVariable('GOOSE_CONTEXT_LIMIT', "$ContextLimit", 'User')
+    $env:GOOSE_CONTEXT_LIMIT = "$ContextLimit"
+    Write-Ok "Set user env var GOOSE_CONTEXT_LIMIT = $ContextLimit"
+
+    $thr = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, '{0:0.###}', $AutoCompactThreshold)
+    [Environment]::SetEnvironmentVariable('GOOSE_AUTO_COMPACT_THRESHOLD', $thr, 'User')
+    $env:GOOSE_AUTO_COMPACT_THRESHOLD = $thr
+    if ($AutoCompactThreshold -le 0) {
+        Write-Ok "Set user env var GOOSE_AUTO_COMPACT_THRESHOLD = $thr (auto-compaction disabled)"
+    }
+    else {
+        $trigger = [int]($ContextLimit * $AutoCompactThreshold)
+        Write-Ok "Set user env var GOOSE_AUTO_COMPACT_THRESHOLD = $thr (compacts around $trigger tokens)"
+    }
+    Write-Note "Restart Goose (and open a new terminal for the CLI) to pick these up."
+}
+else {
+    Write-Note "Skipping Goose context settings (-SkipContext)."
+}
+
+# ===========================================================================
+# 4) GITHUB ENTERPRISE COPILOT (optional)
 # ===========================================================================
 if ($EnterpriseHost) {
     Write-Step "GitHub Enterprise Copilot configuration"
 
-    # 3a. Persist GITHUB_COPILOT_HOST (user scope) before the first sign-in.
+    # 4a. Persist GITHUB_COPILOT_HOST (user scope) before the first sign-in.
     [Environment]::SetEnvironmentVariable('GITHUB_COPILOT_HOST', $EnterpriseHost, 'User')
     $env:GITHUB_COPILOT_HOST = $EnterpriseHost
     Write-Ok "Set user env var GITHUB_COPILOT_HOST = $EnterpriseHost (restart Goose to pick it up)"
 
-    # 3b. Pin the default model in Goose's config.yaml.
+    # 4b. Pin the default model in Goose's config.yaml.
     $gooseCfg = Join-Path $env:APPDATA 'Block\goose\config\config.yaml'
 
     if ([string]::IsNullOrWhiteSpace($DefaultModel)) {
@@ -121,7 +172,7 @@ if ($EnterpriseHost) {
         # Goose rewrites config.yaml on exit with the last-used model, so close it while editing.
         $gp = Get-Process -Name Goose -ErrorAction SilentlyContinue
         if ($gp) {
-            Write-Warn2 "Goose is running — closing it so the edit is not overwritten on exit..."
+            Write-Warn2 "Goose is running - closing it so the edit is not overwritten on exit..."
             $gp | Stop-Process -Force
             Start-Sleep -Milliseconds 800
         }

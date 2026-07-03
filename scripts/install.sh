@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #
-# install.sh — set up (or update) your machine for Goose on macOS / Linux.
+# install.sh - set up (or update) your machine for Goose on macOS / Linux.
 #
 # What it automates:
 #   1. Installs Homebrew (macOS) if missing, or updates it if present.
 #   2. Opens the official Goose download page so you can install/update Goose.
-#   3. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
+#   3. Sets Goose context / auto-compaction env vars in your shell profile so long
+#      sessions compact earlier (GOOSE_CONTEXT_LIMIT + GOOSE_AUTO_COMPACT_THRESHOLD).
+#   4. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
 #        - sets GITHUB_COPILOT_HOST in your shell profile
 #        - pins a default Copilot model in Goose's config.yaml
 #
@@ -15,8 +17,10 @@
 # Re-runnable and idempotent. Every file it edits is backed up to "<file>.bak".
 #
 # Usage:
-#   ./install.sh                                  # package manager + Goose only
+#   ./install.sh                                  # package manager + Goose + context
 #   ./install.sh --enterprise-host your-co.ghe.com --model claude-opus-4.8
+#   ./install.sh --context-limit 150000 --auto-compact-threshold 0.8
+#   ./install.sh --skip-context                   # leave context env vars untouched
 #   ./install.sh --skip-goose                     # only configure, don't open download page
 #
 set -euo pipefail
@@ -24,6 +28,9 @@ set -euo pipefail
 # ---- defaults --------------------------------------------------------------
 ENTERPRISE_HOST=""
 DEFAULT_MODEL="claude-opus-4.8"
+CONTEXT_LIMIT="200000"
+AUTO_COMPACT_THRESHOLD="0.7"
+SKIP_CONTEXT=false
 SKIP_PKG_MANAGER=false
 SKIP_GOOSE=false
 GOOSE_DOCS_URL="https://goose-docs.ai/"
@@ -39,6 +46,9 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --enterprise-host) ENTERPRISE_HOST="${2:-}"; shift 2 ;;
         --model)           DEFAULT_MODEL="${2:-}";  shift 2 ;;
+        --context-limit)   CONTEXT_LIMIT="${2:-}";  shift 2 ;;
+        --auto-compact-threshold) AUTO_COMPACT_THRESHOLD="${2:-}"; shift 2 ;;
+        --skip-context)    SKIP_CONTEXT=true; shift ;;
         --skip-package-manager) SKIP_PKG_MANAGER=true; shift ;;
         --skip-goose)      SKIP_GOOSE=true; shift ;;
         -h|--help)
@@ -52,8 +62,36 @@ ENTERPRISE_HOST="$(printf '%s' "$ENTERPRISE_HOST" | sed -E 's#^https?://##; s#/+
 
 OS="$(uname -s)"
 step "Goose setup ($OS)"
-note "Enterprise host: ${ENTERPRISE_HOST:-'(none — public github.com)'}"
+note "Enterprise host: ${ENTERPRISE_HOST:-'(none - public github.com)'}"
 note "Default model  : ${DEFAULT_MODEL:-'(skip)'}"
+if [ "$SKIP_CONTEXT" = true ]; then
+    note "Context        : (skip)"
+else
+    note "Context        : limit $CONTEXT_LIMIT, threshold $AUTO_COMPACT_THRESHOLD"
+fi
+
+# Pick the shell profile to persist env vars into.
+case "${SHELL:-}" in
+    *zsh)  PROFILE="$HOME/.zshrc" ;;
+    *bash) PROFILE="$HOME/.bashrc" ;;
+    *)     PROFILE="$HOME/.profile" ;;
+esac
+
+# Persist "export NAME=VALUE" in $PROFILE, replacing any existing line for NAME.
+# Backs the profile up to <profile>.bak the first time it is edited per run.
+set_profile_var() {
+    _name="$1"; _value="$2"
+    _line="export ${_name}=\"${_value}\""
+    touch "$PROFILE"
+    if grep -q "^export ${_name}=" "$PROFILE"; then
+        cp "$PROFILE" "$PROFILE.bak"
+        sed -i.tmp -E "s#^export ${_name}=.*#${_line}#" "$PROFILE" && rm -f "$PROFILE.tmp"
+        ok "Updated ${_name} in $PROFILE (backup: $PROFILE.bak)"
+    else
+        printf '\n%s\n' "$_line" >> "$PROFILE"
+        ok "Added ${_name} to $PROFILE"
+    fi
+}
 
 open_url() {
     if command -v open >/dev/null 2>&1;      then open "$1"
@@ -67,7 +105,7 @@ open_url() {
 if [ "$SKIP_PKG_MANAGER" = false ]; then
     step "Package manager (Homebrew)"
     if command -v brew >/dev/null 2>&1; then
-        ok "Homebrew already installed — updating."
+        ok "Homebrew already installed - updating."
         brew update || warn "brew update failed; continuing."
     elif [ "$OS" = "Darwin" ] || [ "$OS" = "Linux" ]; then
         note "Installing Homebrew (you may be prompted for your password)..."
@@ -94,31 +132,37 @@ else
 fi
 
 # ===========================================================================
-# 3) GITHUB ENTERPRISE COPILOT (optional)
+# 3) GOOSE CONTEXT / AUTO-COMPACTION
+# ===========================================================================
+# On large-window models the default auto-compaction trigger (80% of the limit)
+# can be hundreds of thousands of tokens. Long before that a session gets slow,
+# costly, and less accurate. Setting both a tracked context limit and a lower
+# threshold gives a predictable, earlier compaction point across all models.
+#   trigger tokens = GOOSE_CONTEXT_LIMIT x GOOSE_AUTO_COMPACT_THRESHOLD
+# Defaults 200000 x 0.7 = compact around 140000 tokens.
+if [ "$SKIP_CONTEXT" = false ]; then
+    step "Goose context / auto-compaction"
+    set_profile_var "GOOSE_CONTEXT_LIMIT" "$CONTEXT_LIMIT"
+    export GOOSE_CONTEXT_LIMIT="$CONTEXT_LIMIT"
+    set_profile_var "GOOSE_AUTO_COMPACT_THRESHOLD" "$AUTO_COMPACT_THRESHOLD"
+    export GOOSE_AUTO_COMPACT_THRESHOLD="$AUTO_COMPACT_THRESHOLD"
+    note "Open a new terminal (or 'source $PROFILE') and restart Goose to pick these up."
+else
+    note "Skipping Goose context settings (--skip-context)."
+fi
+
+# ===========================================================================
+# 4) GITHUB ENTERPRISE COPILOT (optional)
 # ===========================================================================
 if [ -n "$ENTERPRISE_HOST" ]; then
     step "GitHub Enterprise Copilot configuration"
 
-    # 3a. Persist GITHUB_COPILOT_HOST in the shell profile.
-    case "${SHELL:-}" in
-        *zsh)  PROFILE="$HOME/.zshrc" ;;
-        *bash) PROFILE="$HOME/.bashrc" ;;
-        *)     PROFILE="$HOME/.profile" ;;
-    esac
-    LINE="export GITHUB_COPILOT_HOST=\"$ENTERPRISE_HOST\""
-    touch "$PROFILE"
-    if grep -q '^export GITHUB_COPILOT_HOST=' "$PROFILE"; then
-        cp "$PROFILE" "$PROFILE.bak"
-        sed -i.tmp -E "s#^export GITHUB_COPILOT_HOST=.*#$LINE#" "$PROFILE" && rm -f "$PROFILE.tmp"
-        ok "Updated GITHUB_COPILOT_HOST in $PROFILE (backup: $PROFILE.bak)"
-    else
-        printf '\n%s\n' "$LINE" >> "$PROFILE"
-        ok "Added GITHUB_COPILOT_HOST to $PROFILE"
-    fi
+    # 4a. Persist GITHUB_COPILOT_HOST in the shell profile.
+    set_profile_var "GITHUB_COPILOT_HOST" "$ENTERPRISE_HOST"
     export GITHUB_COPILOT_HOST="$ENTERPRISE_HOST"
     note "Open a new terminal (or 'source $PROFILE') and restart Goose to pick it up."
 
-    # 3b. Pin the default model in Goose's config.yaml.
+    # 4b. Pin the default model in Goose's config.yaml.
     GOOSE_CFG="$HOME/.config/goose/config.yaml"
     if [ -z "$DEFAULT_MODEL" ]; then
         note "No --model given; skipping model pin."
@@ -131,7 +175,7 @@ if [ -n "$ENTERPRISE_HOST" ]; then
             yq -i ".active_provider = \"github_copilot\" | .providers.github_copilot.model = \"$DEFAULT_MODEL\"" "$GOOSE_CFG"
             ok "Pinned default model to '$DEFAULT_MODEL' in $GOOSE_CFG (backup: config.yaml.bak)"
         else
-            warn "'yq' not found — cannot safely edit YAML automatically."
+            warn "'yq' not found - cannot safely edit YAML automatically."
             warn "Add this to $GOOSE_CFG by hand (while Goose is closed):"
             printf '        active_provider: github_copilot\n'
             printf '        providers:\n          github_copilot:\n            model: %s\n' "$DEFAULT_MODEL"
