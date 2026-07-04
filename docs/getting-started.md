@@ -7,8 +7,16 @@ This guide walks you through installing Goose so you can start building with AI.
 Go to the official Goose docs and follow the download/install instructions:
 
 - **Goose website:** https://goose-docs.ai/
+- **Source & releases:** https://github.com/aaif-goose/goose
 
-Download the version for your operating system and install it from there.
+Download the version for your operating system and install it from there. The
+CLI installer, and the desktop `.deb` / `.rpm` / Flatpak assets, live on the
+[releases page](https://github.com/aaif-goose/goose/releases).
+
+> **Note:** Goose moved from `block/goose` to `aaif-goose/goose` under the Linux
+> Foundation's Agentic AI Foundation. Use the `aaif-goose` repo and
+> `goose-docs.ai` - old `block.github.io/goose` links still resolve but are being
+> retired.
 
 ## 2. Install a package manager (recommended)
 

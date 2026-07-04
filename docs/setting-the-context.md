@@ -124,6 +124,19 @@ new values.
 - Restart Goose (and open a new terminal for the CLI) after changing these so the
   new values are picked up.
 
+## Related: capping tool output
+
+Compaction manages the conversation as a whole. A different setting protects
+against a *single* command dumping a huge blob into context all at once:
+
+```
+GOOSE_MAX_TOOL_RESPONSE_SIZE=50000   # bytes; larger tool results are truncated
+```
+
+The install scripts set this alongside the two context variables above (default
+`50000` bytes, `--skip-context` / `-SkipContext` skips it too). Full explanation:
+[Global Goose Hints](goose-hints.md).
+
 ## More detail
 
 See the official Goose documentation:

@@ -7,9 +7,12 @@
 
       1. Installs Scoop if missing, or updates it if already present.
       2. Opens the official Goose download page so you can install/update Goose.
-      3. Sets Goose context / auto-compaction env vars so long sessions compact
-         earlier (GOOSE_CONTEXT_LIMIT + GOOSE_AUTO_COMPACT_THRESHOLD).
-      4. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
+      3. Sets Goose context / output env vars so long sessions compact earlier and
+         no single tool call floods the context
+         (GOOSE_CONTEXT_LIMIT + GOOSE_AUTO_COMPACT_THRESHOLD + GOOSE_MAX_TOOL_RESPONSE_SIZE).
+      4. Writes a global .goosehints with shell-hygiene rules so Goose keeps tool
+         output small (no whole-filesystem scans, cap output, etc).
+      5. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
            - sets the GITHUB_COPILOT_HOST user env var
            - pins a default Copilot model in Goose's config.yaml
 
@@ -32,8 +35,15 @@
     Fraction (0.0-1.0) to set as GOOSE_AUTO_COMPACT_THRESHOLD; auto-compaction fires at
     ContextLimit x this value. Default 0.7 (with the default limit, ~140000 tokens). 0.0 disables.
 
+.PARAMETER MaxToolResponseSize
+    Bytes to set as GOOSE_MAX_TOOL_RESPONSE_SIZE - caps a single tool result so one
+    command can't flood the context in a turn. Default 50000.
+
 .PARAMETER SkipContext
-    Skip setting the Goose context / auto-compaction env vars.
+    Skip setting the Goose context / output env vars.
+
+.PARAMETER SkipHints
+    Skip writing the global .goosehints shell-hygiene file.
 
 .PARAMETER SkipPackageManager
     Skip installing/updating Scoop.
@@ -56,7 +66,9 @@ param(
     [string]$DefaultModel   = 'claude-opus-4.8',
     [int]$ContextLimit      = 200000,
     [double]$AutoCompactThreshold = 0.7,
+    [int]$MaxToolResponseSize = 50000,
     [switch]$SkipContext,
+    [switch]$SkipHints,
     [switch]$SkipPackageManager,
     [switch]$SkipGoose
 )
@@ -79,7 +91,7 @@ $EnterpriseHost = ($EnterpriseHost -replace '^https?://', '').TrimEnd('/')
 Write-Host "Goose setup (Windows)" -ForegroundColor White
 Write-Note "Enterprise host: $(if ($EnterpriseHost) { $EnterpriseHost } else { '(none - public github.com)' })"
 Write-Note "Default model  : $(if ($DefaultModel) { $DefaultModel } else { '(skip)' })"
-Write-Note "Context        : $(if ($SkipContext) { '(skip)' } else { "limit $ContextLimit, threshold $AutoCompactThreshold" })"
+Write-Note "Context        : $(if ($SkipContext) { '(skip)' } else { "limit $ContextLimit, threshold $AutoCompactThreshold, max tool output $MaxToolResponseSize bytes" })"
 
 # ===========================================================================
 # 1) PACKAGE MANAGER (Scoop)
@@ -116,7 +128,7 @@ else {
 }
 
 # ===========================================================================
-# 3) GOOSE CONTEXT / AUTO-COMPACTION
+# 3) GOOSE CONTEXT / OUTPUT
 # ===========================================================================
 # On large-window models the default auto-compaction trigger (80% of the limit)
 # can be hundreds of thousands of tokens. Long before that a session gets slow,
@@ -124,8 +136,10 @@ else {
 # threshold gives a predictable, earlier compaction point across all models.
 #   trigger tokens = GOOSE_CONTEXT_LIMIT x GOOSE_AUTO_COMPACT_THRESHOLD
 # Defaults 200000 x 0.7 = compact around 140000 tokens.
+# GOOSE_MAX_TOOL_RESPONSE_SIZE caps a single tool result (in bytes) so one command
+# - e.g. a whole-filesystem scan - can't flood the context in a single turn.
 if (-not $SkipContext) {
-    Write-Step "Goose context / auto-compaction"
+    Write-Step "Goose context / output"
 
     [Environment]::SetEnvironmentVariable('GOOSE_CONTEXT_LIMIT', "$ContextLimit", 'User')
     $env:GOOSE_CONTEXT_LIMIT = "$ContextLimit"
@@ -141,6 +155,11 @@ if (-not $SkipContext) {
         $trigger = [int]($ContextLimit * $AutoCompactThreshold)
         Write-Ok "Set user env var GOOSE_AUTO_COMPACT_THRESHOLD = $thr (compacts around $trigger tokens)"
     }
+
+    [Environment]::SetEnvironmentVariable('GOOSE_MAX_TOOL_RESPONSE_SIZE', "$MaxToolResponseSize", 'User')
+    $env:GOOSE_MAX_TOOL_RESPONSE_SIZE = "$MaxToolResponseSize"
+    Write-Ok "Set user env var GOOSE_MAX_TOOL_RESPONSE_SIZE = $MaxToolResponseSize (bytes per tool result)"
+
     Write-Note "Restart Goose (and open a new terminal for the CLI) to pick these up."
 }
 else {
@@ -148,7 +167,45 @@ else {
 }
 
 # ===========================================================================
-# 4) GITHUB ENTERPRISE COPILOT (optional)
+# 4) GLOBAL GOOSE HINTS (shell hygiene)
+# ===========================================================================
+# Goose loads .goosehints from its config dir into every session. These rules keep
+# tool output small so a single command (e.g. a whole-filesystem scan) can't
+# balloon the context and trigger empty-response errors from the model provider.
+# Created only if absent, so your own custom hints are never overwritten.
+if (-not $SkipHints) {
+    Write-Step "Global Goose hints"
+    $hintsFile = Join-Path $env:APPDATA 'Block\goose\config\.goosehints'
+    if (Test-Path $hintsFile) {
+        Write-Note "Hints already exist: $hintsFile (left untouched)."
+        Write-Note "See docs/goose-hints.md if you want to merge in the recommended rules."
+    }
+    else {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $hintsFile) | Out-Null
+        $hints = @"
+# Global Goose hints - apply to every session.
+# See: goose-starter/docs/goose-hints.md
+
+## Shell hygiene - keep tool output small
+- Never scan from ``/``. Scope searches to specific directories
+  (e.g. the project dir, ~/.agents/skills, /mnt/skills).
+- Cap long output: pipe through ``head``/``tail``, and prefer counts
+  (``wc -l``, ``grep -c``) over full dumps.
+- For file discovery use ``rg --files -g PATTERN <dir>`` instead of ``find /``.
+- Redirect large intermediate output to a temp file, then read only what you
+  need: ``cmd > /tmp/out.txt; wc -l /tmp/out.txt``.
+"@
+        Save-Utf8NoBom $hintsFile $hints
+        Write-Ok "Wrote $hintsFile"
+        Write-Note "Restart Goose (or start a new session) to pick these up."
+    }
+}
+else {
+    Write-Note "Skipping global Goose hints (-SkipHints)."
+}
+
+# ===========================================================================
+# 5) GITHUB ENTERPRISE COPILOT (optional)
 # ===========================================================================
 if ($EnterpriseHost) {
     Write-Step "GitHub Enterprise Copilot configuration"
