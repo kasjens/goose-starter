@@ -5,8 +5,9 @@ every turn. A **global** hints file lives next to Goose's config and applies to
 **all** sessions; a **project** `.goosehints` in a working directory stacks on
 top of it.
 
-This page adds a small global hints file whose job is to keep **tool output
-small**, so a single command can't balloon your context.
+This page adds a small global hints file with two jobs: keep **tool output
+small** so a single command can't balloon your context, and keep **secrets from
+being exposed** in that output or in commits.
 
 ## Why this matters
 
@@ -26,6 +27,12 @@ Two things go wrong when that happens:
    restriction."* even though your quota and model are fine.
 
 A few standing rules prevent the whole class of problem.
+
+There's a second class of risk worth a standing rule: **secrets leaking into
+output**. If Goose `cat`s a `config.yaml`, `secrets.yaml`, or `.env` while
+helping you, any API key inside is now in the conversation (and, on hosted
+providers, sent upstream). The hints below tell Goose to never print such files
+in the clear and never write a secret into a file or commit.
 
 ## Where the file lives
 
@@ -50,6 +57,14 @@ after creating or editing it.
 - For file discovery use `rg --files -g PATTERN <dir>` instead of `find /`.
 - Redirect large intermediate output to a temp file, then read only what you
   need: `cmd > /tmp/out.txt; wc -l /tmp/out.txt`.
+
+## Secrets - never expose them
+- Never print, echo, or `cat` secret files. This includes Goose's own
+  `config.yaml` and `secrets.yaml`, plus `.env`, `*.pem`, and `*.key` files.
+- When you must inspect such a file, redact values: show keys/structure only
+  (e.g. `grep -c` or mask with `sed`), never the secret itself.
+- Never write an API key, token, or password into a file, command, or commit.
+  If a secret is needed, reference it by env-var name and let the keyring supply it.
 ```
 
 ## Enforce it at the harness level too

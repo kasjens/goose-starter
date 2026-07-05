@@ -1,0 +1,21 @@
+# Local backups created by the install scripts (may contain plaintext secrets)
+*.bak
+*.bak.*
+*.tmp
+
+# Goose config + secret files - NEVER commit these; they can hold API keys/tokens
+config.yaml
+config.yaml.*
+secrets.yaml
+.goosehints
+
+# Generic secret / environment files
+.env
+.env.*
+*.pem
+*.key
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

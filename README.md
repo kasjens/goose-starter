@@ -18,6 +18,7 @@ working Goose setup, even if it's your first time.
 - [Best practices](#best-practices)
   - [Setting the context](#setting-the-context)
   - [Global hints (shell hygiene)](#global-hints-shell-hygiene)
+  - [Securing extension secrets](#securing-extension-secrets)
 - [GitHub Enterprise Copilot (optional)](#github-enterprise-copilot-optional)
 - [Repo layout](#repo-layout)
 - [Documentation](#documentation)
@@ -143,8 +144,10 @@ using the package manager on your system. See
 ## Best practices
 
 These are the settings that keep long sessions fast, cheap, and reliable. The
-**quick-install scripts apply them all for you** - this section explains what
-they do so you can tune or set them by hand. Each is safe to change or skip.
+**quick-install scripts apply the first two for you** (context and hints) - this
+section explains what they do so you can tune or set them by hand. Securing
+extension secrets is a manual practice the scripts deliberately don't automate.
+Each is safe to change or skip.
 
 ### Setting the context
 
@@ -182,8 +185,10 @@ Full explanation, per-model guidance, and how to set it by hand:
 ### Global hints (shell hygiene)
 
 Goose reads a global `.goosehints` file into **every** session. The scripts drop
-in a small set of shell-hygiene rules that keep tool output small - no
-whole-filesystem `find /` scans, cap long output, prefer counts. This stops a
+in a small set of rules covering two things: **shell hygiene** that keeps tool
+output small - no whole-filesystem `find /` scans, cap long output, prefer counts
+- and **secret safety** so Goose won't `cat` a `config.yaml`/`secrets.yaml`/`.env`
+into the conversation or write a key into a commit. The shell-hygiene half stops a
 single command from ballooning your context (which, on GitHub Enterprise Copilot,
 can even make a turn come back empty with *"No message in API response"*).
 
@@ -207,6 +212,30 @@ are never overwritten:
 Where it lives, the exact rules, and how to set it by hand:
 [Global Goose Hints](docs/goose-hints.md).
 
+### Securing extension secrets
+
+Some extensions need an API key or token - for example the Brave Search
+extension needs a `BRAVE_API_KEY`. If you paste the key straight into the
+extension, it can end up stored in **plaintext** inside Goose's `config.yaml`.
+
+Store it in your system **keyring** instead. The short version:
+
+- Declare the variable **name** in the extension's `env_keys` (not its value in
+  `envs`).
+- Enter the actual key through `goose configure`, which saves it to the keyring
+  and reuses it on later runs.
+- If a key was ever stored in plaintext, **rotate it** - it may also be sitting
+  in `config.yaml.bak*` backups and your shell history.
+
+The install scripts don't touch extension secrets (they can't script the
+interactive keyring prompt), so this is a manual best practice. Full walkthrough,
+including how to spot an exposed key and clean up backups:
+[Securing Extension Secrets](docs/securing-extension-secrets.md).
+
+> **Heads-up:** this repo's `.gitignore` already excludes `config.yaml`,
+> `secrets.yaml`, and `*.bak` files so you can't accidentally commit a key from a
+> local Goose setup. Keep it that way.
+
 ## GitHub Enterprise Copilot (optional)
 
 If your organization provides a **company-backed GitHub Enterprise Copilot**
@@ -226,11 +255,13 @@ manual. Full walkthrough:
 ```
 goose-starter/
 |-- README.md                              # you are here
+|-- .gitignore                             # keeps secrets/backups (config.yaml, *.bak) out of git
 |-- docs/
 |   |-- getting-started.md                 # install Goose + a package manager
 |   |-- importing-skills.md                # add skills and their dependencies
 |   |-- setting-the-context.md             # tune auto-compaction / context limit
 |   |-- goose-hints.md                     # global .goosehints shell-hygiene rules
+|   |-- securing-extension-secrets.md      # move API keys out of config.yaml into the keyring
 |   `-- goose-github-enterprise-copilot.md # optional enterprise Copilot setup
 `-- scripts/
     |-- install.sh                         # macOS / Linux install + update
@@ -245,6 +276,7 @@ goose-starter/
 | [Importing Skills](docs/importing-skills.md) | Adding skills from GitHub and installing dependencies |
 | [Setting the Context](docs/setting-the-context.md) | Tuning auto-compaction so long sessions stay fast |
 | [Global Goose Hints](docs/goose-hints.md) | Shell-hygiene rules that keep tool output small |
+| [Securing Extension Secrets](docs/securing-extension-secrets.md) | Moving API keys out of `config.yaml` into the system keyring |
 | [GitHub Enterprise Copilot](docs/goose-github-enterprise-copilot.md) | Configuring Goose against an enterprise Copilot seat |
 
 ## Troubleshooting

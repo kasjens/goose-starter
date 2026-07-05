@@ -192,6 +192,14 @@ if [ "$SKIP_HINTS" = false ]; then
 - For file discovery use `rg --files -g PATTERN <dir>` instead of `find /`.
 - Redirect large intermediate output to a temp file, then read only what you
   need: `cmd > /tmp/out.txt; wc -l /tmp/out.txt`.
+
+## Secrets - never expose them
+- Never print, echo, or `cat` secret files. This includes Goose's own
+  `config.yaml` and `secrets.yaml`, plus `.env`, `*.pem`, and `*.key` files.
+- When you must inspect such a file, redact values: show keys/structure only
+  (e.g. `grep -c` or mask with `sed`), never the secret itself.
+- Never write an API key, token, or password into a file, command, or commit.
+  If a secret is needed, reference it by env-var name and let the keyring supply it.
 HINTS
         ok "Wrote $HINTS_FILE"
         note "Restart Goose (or start a new session) to pick these up."
