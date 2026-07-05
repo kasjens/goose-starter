@@ -19,6 +19,7 @@ working Goose setup, even if it's your first time.
   - [Setting the context](#setting-the-context)
   - [Global hints (shell hygiene)](#global-hints-shell-hygiene)
   - [Securing extension secrets](#securing-extension-secrets)
+  - [Speeding up slow extensions](#speeding-up-slow-extensions)
 - [GitHub Enterprise Copilot (optional)](#github-enterprise-copilot-optional)
 - [Repo layout](#repo-layout)
 - [Documentation](#documentation)
@@ -238,6 +239,26 @@ including how to spot an exposed key and clean up backups:
 > `secrets.yaml`, and `*.bak` files so you can't accidentally commit a key from a
 > local Goose setup. Keep it that way.
 
+### Speeding up slow extensions
+
+If an extension takes a few seconds to load **every** time a session starts, the
+culprit is usually its launcher, not the extension. Extensions configured to run
+through `npx -y <package>` (Node) or `uvx <package>` (Python) **re-resolve the
+package from the registry on every launch** - even when it's already cached - and
+that network round-trip is the delay you feel each time.
+
+The fix is to install the package once and point the extension straight at it:
+
+- Install it globally (`npm install -g <package>`, or `uv tool install <package>`).
+- Edit the extension's `cmd`/`args` in `config.yaml` to call the installed program
+  directly instead of through `npx -y` / `uvx` (leave `env_keys` untouched - the
+  keyring still supplies the secret).
+
+In testing this took an extension from ~4s to ~0.7-1s per launch. The trade-off is
+that pinned packages no longer auto-update, so you refresh them by hand
+occasionally. Full walkthrough, both approaches, and how to verify:
+[Speeding Up Slow Extensions](docs/speeding-up-extensions.md).
+
 ## GitHub Enterprise Copilot (optional)
 
 If your organization provides a **company-backed GitHub Enterprise Copilot**
@@ -264,6 +285,7 @@ goose-starter/
 |   |-- setting-the-context.md             # tune auto-compaction / context limit
 |   |-- goose-hints.md                     # global .goosehints shell-hygiene rules
 |   |-- securing-extension-secrets.md      # move API keys out of config.yaml into the keyring
+|   |-- speeding-up-extensions.md          # make slow npx/uvx extensions start faster
 |   `-- goose-github-enterprise-copilot.md # optional enterprise Copilot setup
 `-- scripts/
     |-- install.sh                         # macOS / Linux install + update
@@ -279,6 +301,7 @@ goose-starter/
 | [Setting the Context](docs/setting-the-context.md) | Tuning auto-compaction so long sessions stay fast |
 | [Global Goose Hints](docs/goose-hints.md) | Shell-hygiene rules that keep tool output small |
 | [Securing Extension Secrets](docs/securing-extension-secrets.md) | Moving API keys out of `config.yaml` into the system keyring |
+| [Speeding Up Slow Extensions](docs/speeding-up-extensions.md) | Making `npx`/`uvx` extensions start faster by pinning them |
 | [GitHub Enterprise Copilot](docs/goose-github-enterprise-copilot.md) | Configuring Goose against an enterprise Copilot seat |
 
 ## Troubleshooting
@@ -295,6 +318,13 @@ goose-starter/
   afterwards. The env var must be set *before* signing in.
 - **Pinned model keeps resetting:** in Goose's model picker choose your model
   (not **Auto**) - Goose saves the last-used model as the default on exit.
+- **An extension is slow to load on every launch:** if it runs via `npx -y` or
+  `uvx`, the launcher re-resolves the package from the registry each start. Pin it
+  - see [Speeding Up Slow Extensions](docs/speeding-up-extensions.md).
+- **`goose configure` says an extension "already exists":** the **Add Extension**
+  flow can't edit an existing one. **Remove Extension** first, then **Add** it back
+  (re-entering its env var) - see
+  [Securing Extension Secrets](docs/securing-extension-secrets.md).
 
 ## About Goose
 

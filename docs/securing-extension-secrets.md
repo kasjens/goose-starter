@@ -113,6 +113,15 @@ Extension** flow. When Goose asks *"Would you like to add environment
 variables?"*, choose **Yes**, enter the name (`BRAVE_API_KEY`) and paste your
 **new** key as the value. The value goes into the keyring, not the file.
 
+> **"Extension already exists" - can't add?** `goose configure` won't let **Add
+> Extension** modify one that's already in your config, and there's no in-place
+> "edit env var" option. To change the key on an existing extension, **Remove
+> Extension** first, then **Add Extension** again and re-enter its environment
+> variable during the add. Your `config.yaml` already lists the extension's
+> command and args, so you can copy them straight back in. (Removing an extension
+> doesn't delete the key from the keyring - re-adding with the same variable name
+> reuses it.)
+
 ## Step 4 - Verify nothing is left in plaintext
 
 ```bash
