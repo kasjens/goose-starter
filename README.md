@@ -209,7 +209,9 @@ are never overwritten:
 ./scripts/install.sh --skip-hints     # don't write the global .goosehints
 ```
 
-Where it lives, the exact rules, and how to set it by hand:
+Because the scripts never overwrite an existing file, an **older setup won't pick
+up newer rules** (like the secrets block) automatically - you'd append them by
+hand. Where it lives, the exact rules, and how to set it by hand:
 [Global Goose Hints](docs/goose-hints.md).
 
 ### Securing extension secrets

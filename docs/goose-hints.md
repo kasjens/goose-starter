@@ -115,11 +115,30 @@ overwritten.
 ./scripts/install.ps1 -SkipHints      # leave hints untouched
 ```
 
+> **Already have a `.goosehints`?** The scripts never overwrite an existing file,
+> so if you set Goose up before these rules existed you **won't** get them
+> automatically - you need to add them by hand (see below). Check what you have
+> with:
+>
+> ```bash
+> # macOS / Linux
+> cat ~/.config/goose/.goosehints
+> ```
+>
+> ```powershell
+> # Windows
+> Get-Content "$env:APPDATA\Block\goose\config\.goosehints"
+> ```
+>
+> If the `## Secrets - never expose them` block is missing, append it.
+
 ## Setting it by hand
 
 Create the file at the path for your OS (see above) with the recommended rules,
 then restart Goose. If a global `.goosehints` already exists, just append the
-`## Shell hygiene` block to it.
+`## Shell hygiene` and `## Secrets` blocks to it - don't overwrite what's there.
+This is also the upgrade path if you installed before the secrets rule was added:
+paste the `## Secrets - never expose them` block into your existing file.
 
 ## Good to know
 
