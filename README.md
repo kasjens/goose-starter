@@ -21,6 +21,7 @@ working Goose setup, even if it's your first time.
   - [Securing extension secrets](#securing-extension-secrets)
   - [Speeding up slow extensions](#speeding-up-slow-extensions)
 - [GitHub Enterprise Copilot (optional)](#github-enterprise-copilot-optional)
+- [Antivirus false positives (Windows)](#antivirus-false-positives-windows)
 - [Repo layout](#repo-layout)
 - [Documentation](#documentation)
 - [Troubleshooting](#troubleshooting)
@@ -273,6 +274,16 @@ The install scripts automate the parts that can be scripted; the sign-in is
 manual. Full walkthrough:
 [GitHub Enterprise Copilot](docs/goose-github-enterprise-copilot.md).
 
+## Antivirus false positives (Windows)
+
+On a managed Windows machine, Microsoft Defender (or your EDR) may flag Goose as
+suspicious. These are almost always **false positives** - Defender's heuristics
+react to the *shape* of a command (a download chained into PowerShell, a runtime
+unzipped from a temp folder), not to anything malicious. A short Goose hint stops
+the model from producing those shapes, and a couple of runtime tweaks clean up
+the rest. Full explanation and the copy-paste hint:
+[Antivirus False Positives](docs/antivirus-false-positives.md).
+
 ## Repo layout
 
 ```
@@ -286,7 +297,8 @@ goose-starter/
 |   |-- goose-hints.md                     # global .goosehints shell-hygiene rules
 |   |-- securing-extension-secrets.md      # move API keys out of config.yaml into the keyring
 |   |-- speeding-up-extensions.md          # make slow npx/uvx extensions start faster
-|   `-- goose-github-enterprise-copilot.md # optional enterprise Copilot setup
+|   |-- goose-github-enterprise-copilot.md # optional enterprise Copilot setup
+|   `-- antivirus-false-positives.md       # calm Defender/EDR false positives (Windows)
 `-- scripts/
     |-- install.sh                         # macOS / Linux install + update
     `-- install.ps1                        # Windows install + update
@@ -303,6 +315,7 @@ goose-starter/
 | [Securing Extension Secrets](docs/securing-extension-secrets.md) | Moving API keys out of `config.yaml` into the system keyring |
 | [Speeding Up Slow Extensions](docs/speeding-up-extensions.md) | Making `npx`/`uvx` extensions start faster by pinning them |
 | [GitHub Enterprise Copilot](docs/goose-github-enterprise-copilot.md) | Configuring Goose against an enterprise Copilot seat |
+| [Antivirus False Positives](docs/antivirus-false-positives.md) | Why Defender flags Goose and how to calm the false positives |
 
 ## Troubleshooting
 
@@ -325,6 +338,10 @@ goose-starter/
   flow can't edit an existing one. **Remove Extension** first, then **Add** it back
   (re-entering its env var) - see
   [Securing Extension Secrets](docs/securing-extension-secrets.md).
+- **Windows Defender flags Goose as suspicious:** these are false positives on
+  the *shape* of Goose's commands, not real malware. See
+  [Antivirus False Positives](docs/antivirus-false-positives.md) for the hint and
+  runtime tweaks that calm them.
 
 ## About Goose
 
