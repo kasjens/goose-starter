@@ -11,7 +11,9 @@
          no single tool call floods the context
          (GOOSE_CONTEXT_LIMIT + GOOSE_AUTO_COMPACT_THRESHOLD + GOOSE_MAX_TOOL_RESPONSE_SIZE).
       4. Writes a global .goosehints with shell-hygiene rules so Goose keeps tool
-         output small (no whole-filesystem scans, cap output, etc).
+         output small (no whole-filesystem scans, cap output, etc), plus Windows
+         Defender rules that steer Goose away from malware-shaped commands
+         (cmd->curl->powershell chains, download-and-run) that trip false positives.
       5. (Optional) Configures Goose for a company GitHub Enterprise Copilot seat:
            - sets the GITHUB_COPILOT_HOST user env var
            - pins a default Copilot model in Goose's config.yaml
@@ -171,7 +173,9 @@ else {
 # ===========================================================================
 # Goose loads .goosehints from its config dir into every session. These rules keep
 # tool output small so a single command (e.g. a whole-filesystem scan) can't
-# balloon the context and trigger empty-response errors from the model provider.
+# balloon the context and trigger empty-response errors from the model provider,
+# and keep Goose from emitting malware-shaped commands that trip Windows Defender
+# false positives (see docs/antivirus-false-positives.md).
 # Created only if absent, so your own custom hints are never overwritten.
 if (-not $SkipHints) {
     Write-Step "Global Goose hints"
@@ -202,6 +206,20 @@ if (-not $SkipHints) {
   (e.g. ``grep -c`` or mask with ``sed``), never the secret itself.
 - Never write an API key, token, or password into a file, command, or commit.
   If a secret is needed, reference it by env-var name and let the keyring supply it.
+
+## Windows Defender hygiene - avoid command shapes that look like malware
+Defender's ML heuristics flag the *form* of a command, not its intent. Avoid
+these shapes even for completely harmless tasks:
+- NEVER chain ``cmd /C ... && powershell ...``, and never pipe/chain a download
+  into a shell (``curl ... && powershell``, ``irm ... | iex``, ``curl ... | sh``).
+  This is the "ClickFix" signature and triggers a detection every single time.
+- To read remote content (docs, maps, config), use the built-in fetch/web tools
+  or a search extension - do NOT shell out to ``curl``/``Invoke-WebRequest``. For
+  local files use the Read/developer tools.
+- NEVER download a file and then execute or ``Expand-Archive`` it in the same or a
+  following step, and never fetch into ``%TEMP%`` then run/expand from there.
+- If you genuinely must run PowerShell, write the script to a ``.ps1`` file and run
+  that file. Never use a long inline ``-Command`` or any ``-EncodedCommand``/base64.
 "@
         Save-Utf8NoBom $hintsFile $hints
         Write-Ok "Wrote $hintsFile"

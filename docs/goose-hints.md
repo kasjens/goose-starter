@@ -67,6 +67,11 @@ after creating or editing it.
   If a secret is needed, reference it by env-var name and let the keyring supply it.
 ```
 
+> **Windows:** `install.ps1` writes a third block, *Windows Defender hygiene*,
+> that steers Goose away from command shapes (`cmd -> curl -> powershell` chains,
+> download-and-run) which trip Defender false positives. Full explanation:
+> [Antivirus False Positives](antivirus-false-positives.md).
+
 ## Enforce it at the harness level too
 
 Hints *ask* the model to keep output small; they don't guarantee it. For a hard
@@ -130,7 +135,9 @@ overwritten.
 > Get-Content "$env:APPDATA\Block\goose\config\.goosehints"
 > ```
 >
-> If the `## Secrets - never expose them` block is missing, append it.
+> If the `## Secrets - never expose them` block is missing, append it. On
+> Windows, also append the `## Windows Defender hygiene` block from
+> [Antivirus False Positives](antivirus-false-positives.md) if it isn't there.
 
 ## Setting it by hand
 
